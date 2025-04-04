@@ -16,118 +16,46 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURM_JOB_NODELIST"
 echo "Start Time: $(date)"
 
-# Load CUDA module for CUDA 12.0
-module load cuda12.0
-
-# Check and set CUDA environment variables
-# The module should set CUDA_HOME, but we'll check and set it if needed
-if [ -z "$CUDA_HOME" ]; then
-    # Common locations for CUDA installation
-    if [ -d "/usr/local/cuda-12.0" ]; then
-        export CUDA_HOME=/usr/local/cuda-12.0
-    elif [ -d "/cm/local/apps/cuda/12.0" ]; then
-        export CUDA_HOME=/cm/local/apps/cuda/12.0
-    else
-        # Try to find it from nvcc path
-        NVCC_PATH=$(which nvcc 2>/dev/null)
-        if [ ! -z "$NVCC_PATH" ]; then
-            export CUDA_HOME=$(dirname $(dirname $NVCC_PATH))
-        else
-            echo "WARNING: Could not determine CUDA_HOME automatically."
-            echo "Please check your CUDA installation and set CUDA_HOME manually."
-        fi
-    fi
-fi
-
-# Update library and executable paths
-export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:$LD_LIBRARY_PATH
-export PATH=${CUDA_HOME}/bin:${PATH}
-
-# Print CUDA environment for debugging
-echo "CUDA environment:"
-echo "CUDA_HOME: $CUDA_HOME"
-echo "PATH: $PATH"
-echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
-nvcc --version || echo "nvcc not found in PATH"
-
 # Activate your environment 
 source ~/venv/gansformer/bin/activate
 
 # Navigate to the project directory
 cd $HOME/ConditionalGansformer
 
-# Check Python version
-echo "Python version:"
-python --version
+module load cuda12.0
 
-# Install required dependencies
-echo "Installing/updating required dependencies..."
-pip install click==8.0.4 tqdm pillow==8.4.0
-
-# Install TensorFlow with compatibility - try multiple approaches
-echo "Installing compatible TensorFlow version..."
-pip uninstall -y tensorflow tensorflow-gpu
-
-# Option 1: Try regular TensorFlow 1.15 (might work on some systems without GPU)
-echo "Trying tensorflow 1.15.0..."
-pip install tensorflow==1.15.0 || echo "Failed to install tensorflow 1.15.0"
-
-# Option 2: TensorFlow 2.x with compatibility package
-if ! python -c "import tensorflow.contrib" 2>/dev/null; then
-    echo "Installing TensorFlow 2.x with compatibility package..."
-    pip install tensorflow==2.3.0 tensorflow-addons
-    pip install tf-slim
-    
-    # Create compatibility.py file
-    cat > ~/venv/gansformer/lib/python*/site-packages/tensorflow/contrib.py << 'EOF'
-import tensorflow as tf
-import tensorflow_addons as tfa
-import tf_slim as slim
-
-# Add contrib components as needed
-contrib = type('contrib', (), {})
-contrib.layers = slim
-contrib.slim = slim
-contrib.distributions = tf.compat.v1.distributions
-contrib.optimizer = tfa.optimizers
-tf.contrib = contrib
-EOF
-
-    echo "Created TensorFlow compatibility layer"
-fi
+# Print CUDA devices information
+echo "CUDA devices available:"
+python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('Device count:', torch.cuda.device_count()); print('PyTorch version:', torch.__version__)"
 
 # Choose the latest checkpoint
-CHECKPOINT=$(ls -t results/cifar100_ganformer/network-snapshot-*.pkl | head -n 1)
-if [ -z "$CHECKPOINT" ]; then
-    echo "No checkpoint found to resume from!"
-    exit 1
-fi
-echo "Resuming from checkpoint: $CHECKPOINT"
+CHECKPOINT='/home/ma618/ConditionalGansformer/results/cifar100_ganformer/cifar100_ganformer-000/network-snapshot-005208.pkl'
 
-# Verify TensorFlow installation
-echo "TensorFlow information:"
-python -c "import tensorflow as tf; print('TensorFlow version:', tf.__version__); print('TensorFlow has contrib:', hasattr(tf, 'contrib')); print('TensorFlow CUDA available:', tf.test.is_built_with_cuda()); print('TensorFlow GPU available:', tf.test.is_gpu_available())"
+echo "Resuming from checkpoint: $CHECKPOINT"
 
 # Run the training with resumption
 echo "Resuming GANsformer training on CIFAR-100..."
 python gansformer/run_network.py \
-  --data-dir datasets \
-  --dataset cifar100 \
-  --resolution 32 \
-  --components-num 8 \
-  --latent-size 128 \
-  --batch-size 32 \
-  --batch-gpu 32 \
-  --gamma 15 \
-  --total-kimg 15000 \
+  --data-dir=datasets \
+  --dataset=cifar100 \
+  --resolution=32 \
+  --components-num=8 \
+  --latent-size=128 \
+  --batch-size=32 \
+  --batch-gpu=32 \
+  --gamma=15 \
+  --total-kimg=15000 \
   --mirror-augment \
   --autotune \
-  --g-lr 0.0025 \
-  --d-lr 0.0025 \
-  --resume-pkl $CHECKPOINT \
+  --g-lr=0.0025 \
+  --d-lr=0.0025 \
+  --pretrained-pkl=$CHECKPOINT \
+  --result-dir=results/cifar100_ganformer \
   --train \
-  --expname cifar100_ganformer \
-  --gpus 0 \
+  --expname=cifar100_ganformer \
+  --gpus=0 \
+  --transformer \
   --reload
+  --result-dir=/data/irb/surgery/pro00114885/conditionalImageGen/results/cifar100_ganformer
 
 echo "Training completed at $(date)" 

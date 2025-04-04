@@ -37,6 +37,14 @@ from metrics import metric_utils
 # Load dataset
 def load_dataset(dataset_args, batch_size, rank, num_gpus, log):
     misc.log("Loading training set...", "white", log)
+    # Convert dataset_args to EasyDict if it's a regular dict
+    if isinstance(dataset_args, dict) and not isinstance(dataset_args, dnnlib.util.EasyDict):
+        dataset_args = dnnlib.util.EasyDict(dataset_args)
+    
+    # Set resize_to_power_of_2=True to ensure resolution is valid for the GAN
+    if 'resize_to_power_of_2' not in dataset_args:
+        dataset_args.resize_to_power_of_2 = True
+        
     dataset = dnnlib.util.construct_class_by_name(**dataset_args) # subclass of training.datasetDataset
     dataset_sampler = torch_misc.InfiniteSampler(dataset = dataset, rank = rank, num_replicas = num_gpus)
     dataset_iter = iter(torch.utils.data.DataLoader(dataset = dataset, sampler = dataset_sampler, 
@@ -44,6 +52,7 @@ def load_dataset(dataset_args, batch_size, rank, num_gpus, log):
     misc.log(f"Num images: {misc.bcolored(len(dataset), 'blue')}", log = log)
     misc.log(f"Image shape: {misc.bcolored(dataset.image_shape, 'blue')}", log = log)
     misc.log(f"Label shape: {misc.bcolored(dataset.label_shape, 'blue')}", log = log)
+    
     return dataset, dataset_iter
 
 # Fetch real images and their corresponding labels, and sample latents/labels
@@ -151,10 +160,19 @@ def init_cuda(rank, cudnn_benchmark, allow_tf32):
 # Setup training stages (alternating optimization of G and D, and for )
 def setup_training_stages(loss_args, G, cG, D, cD, ddp_nets, device, log):
     misc.log("Setting up training stages...", "white", log)
+    
+    # Ensure ddp_nets is an EasyDict
+    if isinstance(ddp_nets, dict) and not isinstance(ddp_nets, dnnlib.util.EasyDict):
+        ddp_nets = dict_to_easydict_recursive(ddp_nets)
+    
     loss = dnnlib.util.construct_class_by_name(device = device, **ddp_nets, **loss_args) # subclass of training.loss.Loss
     stages = []
 
     for name, net, config in [("G", G, cG), ("D", D, cD)]:
+        # Ensure config is an EasyDict
+        if isinstance(config, dict) and not isinstance(config, dnnlib.util.EasyDict):
+            config = dict_to_easydict_recursive(config)
+            
         if config.reg_interval is None:
             opt = dnnlib.util.construct_class_by_name(params = net.parameters(), **config.opt_args) # subclass of torch.optimOptimizer
             stages.append(dnnlib.EasyDict(name = f"{name}_both", net = net, opt = opt, interval = 1))
@@ -244,7 +262,7 @@ def init_img_grid(dataset, input_shape, device, run_dir, log):
     return grid_size, grid_z, grid_c
 
 # Save a snapshot of the sampled grid for the given latents/labels
-def snapshot_img_grid(Gs, drange_net, grid_z, grid_c, grid_size, batch_gpu, truncation_psi, suffix = "init"):
+def snapshot_img_grid(Gs, drange_net, grid_z, grid_c, grid_size, batch_gpu, truncation_psi, run_dir, suffix = "init"):
     images = torch.cat([Gs(z, c, truncation_psi, noise_mode = "const").cpu() for z, c in zip(grid_z.split(batch_gpu), grid_c.split(batch_gpu))]).numpy()
     misc.save_img_grid(images, os.path.join(run_dir, f"fakes_{suffix}.png"), drange = drange_net, grid_size = grid_size)
 
@@ -295,6 +313,18 @@ def update_logger(logger, stats, cur_nimg, start_time):
             logger.tfevents.add_scalar(f"Metrics/{name}", value, global_step = global_step, walltime = walltime)
         logger.tfevents.flush()
 
+# Convert a dictionary (possibly nested) to EasyDict recursively
+def dict_to_easydict_recursive(d):
+    if isinstance(d, dict):
+        result = dnnlib.util.EasyDict()
+        for k, v in d.items():
+            result[k] = dict_to_easydict_recursive(v)
+        return result
+    elif isinstance(d, list):
+        return [dict_to_easydict_recursive(v) for v in d]
+    else:
+        return d
+
 # Training Loop
 # ----------------------------------------------------------------------------
 # 1. Sets up the environment and data
@@ -344,6 +374,16 @@ def training_loop(
     start_time = time.time()
     device = init_cuda(rank, cudnn_benchmark, allow_tf32)
     log = (rank == 0)
+    
+    # Convert dictionaries to EasyDict recursively
+    if isinstance(cG, dict) and not isinstance(cG, dnnlib.util.EasyDict):
+        cG = dict_to_easydict_recursive(cG)
+    if isinstance(cD, dict) and not isinstance(cD, dnnlib.util.EasyDict):
+        cD = dict_to_easydict_recursive(cD)
+    if isinstance(loss_args, dict) and not isinstance(loss_args, dnnlib.util.EasyDict):
+        loss_args = dict_to_easydict_recursive(loss_args)
+    if isinstance(vis_args, dict) and not isinstance(vis_args, dnnlib.util.EasyDict):
+        vis_args = dict_to_easydict_recursive(vis_args)
 
     dataset, dataset_iter = load_dataset(dataset_args, batch_size, rank, num_gpus, log) # Load training set
 

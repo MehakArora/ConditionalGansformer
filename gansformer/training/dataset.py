@@ -6,6 +6,7 @@ import torch
 import dnnlib
 from training import misc
 import glob 
+import math
 
 #----------------------------------------------------------------------------
 
@@ -44,8 +45,22 @@ class Dataset(torch.utils.data.Dataset):
     def _load_image(self, idx): # to be overridden by subclass
         raise NotImplementedError
 
-    def _load_labels(self): # to be overridden by subclass
-        raise NotImplementedError
+    def _load_labels(self):
+        if not self.use_labels:
+            return np.zeros([self.shape[0], 0], dtype = np.float32)
+        
+        label_path = f"{self.path}/labels.npy"
+        if not os.path.exists(label_path):
+            misc.error(f"Labels file not found at {label_path}")
+            
+        try:
+            with open(label_path, "rb") as f:
+                labels = np.load(f)
+        except Exception as e:
+            misc.error(f"Failed to load labels from {label_path}: {e}")
+            
+        labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
+        return labels
 
     def __len__(self):
         return self.idx.size
@@ -119,8 +134,19 @@ class Dataset(torch.utils.data.Dataset):
 #----------------------------------------------------------------------------
 
 class ImageFolderDataset(Dataset):
-    def __init__(self, path, resolution, **kwargs):
+    def __init__(self, path, resolution, resize_to_power_of_2=True, **kwargs):
         self.path = path
+        self.source_resolution = resolution
+        self.resize_resolution = None
+        
+        # Check if resolution is a power of 2, if not, calculate nearest power of 2
+        if resize_to_power_of_2 and (resolution & (resolution - 1) != 0):
+            # Find the next power of 2
+            self.resize_resolution = 2 ** math.ceil(math.log2(resolution))
+            print(f"Note: Resolution {resolution} is not a power of 2. Images will be resized to {self.resize_resolution} on load.")
+            print(f"This allows using non-power-of-2 source images (like {resolution}×{resolution}) with GANsformer's power-of-2 architecture requirement.")
+        
+        # Always load from the folder with the source resolution
         if not os.path.exists(f"{path}/{resolution}"):
             misc.error(f"Dataset folder {path}/{resolution} doesn't exists. Follow data preparation instructions using the prepare_data.py script.")
 
@@ -129,26 +155,41 @@ class ImageFolderDataset(Dataset):
 
         name = os.path.splitext(os.path.basename(self.path))[0]
         
+        # This loads and potentially resizes the first image to calculate the proper shape
         shape = [len(self.img_files)] + list(self._load_image(0).shape)
-        if resolution is not None and (shape[2] != resolution or shape[3] != resolution):
-            misc.error("Image files do not match the specified resolution")
         
-        super().__init__(name = name, shape = shape, **kwargs)
+        super().__init__(name=name, shape=shape, **kwargs)
 
     def _load_image(self, idx):
         with open(self.img_files[idx], "rb") as f:
             image = np.array(PIL.Image.open(f))
+        
         if image.ndim == 2:
-            image = image[:, :, np.newaxis] # HW => HWC
-        image = image.transpose(2, 0, 1) # HWC => CHW
+            image = image[:, :, np.newaxis]  # HW => HWC
+            
+        # Resize if needed (resolution is not a power of 2)
+        if self.resize_resolution is not None:
+            # Convert to PIL for resizing
+            pil_img = PIL.Image.fromarray(image)
+            pil_img = pil_img.resize((self.resize_resolution, self.resize_resolution), PIL.Image.LANCZOS)
+            image = np.array(pil_img)
+            
+        image = image.transpose(2, 0, 1)  # HWC => CHW
         return image
 
     def _load_labels(self):
         if not self.use_labels:
             return np.zeros([self.shape[0], 0], dtype = np.float32)
         
-        with self.open_file(f"{self.path}/labels.npy", "rb") as f:
-            labels = np.load(f)
-
+        label_path = f"{self.path}/labels.npy"
+        if not os.path.exists(label_path):
+            misc.error(f"Labels file not found at {label_path}")
+            
+        try:
+            with open(label_path, "rb") as f:
+                labels = np.load(f)
+        except Exception as e:
+            misc.error(f"Failed to load labels from {label_path}: {e}")
+            
         labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
         return labels

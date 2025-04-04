@@ -73,14 +73,6 @@ catalog = {
         # "url": "https://dl.fbaipublicfiles.com/clevr/CLEVR_v1.0.zip",
         # "md5": "b11922020e72d0cd9154779b2d3d07d2",
         # "process": dataset_tool.create_from_imgs # Function to convert download to tfrecords
-    }),
-    "cifar100": EasyDict({
-        "name": "CIFAR-100", # Dataset name for logging
-        "local": True,       # Indicates it's locally available through our script
-        "dir": "images",
-        "ratio": 1.0,        # CIFAR-100 images are square
-        "process": dataset_tool.create_from_cifar100, # Function to convert to tfrecords
-        "img_num": 60000,    # 50,000 training + 10,000 test images
     })    
 }
 

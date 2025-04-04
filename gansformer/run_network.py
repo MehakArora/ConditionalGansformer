@@ -15,6 +15,10 @@ import glob
 import sys 
 import loader
 
+#Supress warnings
+import warnings
+warnings.filterwarnings("ignore")
+
 
 
 # Conditional set: if property is not None, then assign d[name] := prop
@@ -39,6 +43,18 @@ def set_net(name, subnets, lr, reg_interval):
         net_config[f"{subnet}_kwargs"] = EasyDict()
     return net_config
 
+# Convert a dictionary (possibly nested) to EasyDict recursively
+def dict_to_easydict_recursive(d):
+    if isinstance(d, dict):
+        result = dnnlib.util.EasyDict()
+        for k, v in d.items():
+            result[k] = dict_to_easydict_recursive(v)
+        return result
+    elif isinstance(d, list):
+        return [dict_to_easydict_recursive(v) for v in d]
+    else:
+        return d
+
 # Setup configuration based on command line
 def setup_config(run_dir, **args):
     args  = EasyDict(args)               # command-line options
@@ -51,6 +67,8 @@ def setup_config(run_dir, **args):
             # Load config form the experiment existing file (and so ignore command-line arguments)
             with open(config_fn, "rt") as f:
                 config = json.load(f)
+                # Convert the loaded dictionary to an EasyDict recursively
+                config = dict_to_easydict_recursive(config)
             return config
         misc.log(f"Warning: --reload is set for a new experiment {args.expname}," + 
                  f" but configuration file to reload from {config_fn} doesn't exist.", "red")
@@ -150,7 +168,8 @@ def setup_config(run_dir, **args):
         max_items      = args.train_images_num, 
         resolution     = args.resolution,
         ratio          = args.ratio,
-        mirror_augment = args.mirror_augment
+        mirror_augment = args.mirror_augment,
+        resize_to_power_of_2 = args.resize_to_power_of_2
     )
     dataset_args.loader_args = EasyDict(
         num_workers = args.num_threads,
@@ -248,7 +267,7 @@ def setup_config(run_dir, **args):
             misc.error("--components-num > 0 but the model is not using components. " + 
                 "Add --transformer for GANformer (which uses latent components).")
         if args.latent_size % args.components_num != 0:
-            misc.error(f"--latent-size ({args.latent_size}) should be divisible by --components-num (k={k})")
+            misc.error(f"--latent-size ({args.latent_size}) should be divisible by --components-num (k={args.components_num})")
         args.latent_size = int(args.latent_size / args.components_num)
 
     cG.z_dim = cG.w_dim = args.latent_size
@@ -334,6 +353,10 @@ def setup_working_space(args):
 
 # Resume from the specified --pretrained_pkl, or from the latest snapshot in the experiment's directory otherwise
 def setup_savefile(args, run_name, run_dir, config):
+    # Make sure config is a proper EasyDict
+    if not isinstance(config, dnnlib.util.EasyDict):
+        config = dict_to_easydict_recursive(config)
+        
     snapshot, kimg, resume = None, 0, False
     pkls = sorted(glob.glob(f"{run_dir}/network*.pkl"))
     # Load a particular snapshot is specified
@@ -345,6 +368,7 @@ def setup_savefile(args, run_name, run_dir, config):
 
             snapshot = args.pretrained_pkl
         else: 
+            print(args.pretrained_pkl)
             snapshot = glob.glob(args.pretrained_pkl)[0]
             if os.path.islink(snapshot):
                 snapshot = os.readlink(snapshot)
@@ -363,8 +387,8 @@ def setup_savefile(args, run_name, run_dir, config):
 
     if snapshot:
         misc.log(f"Resuming {run_name}, from {snapshot}, kimg {kimg}", "white")
-        config.resume_pkl = snapshot
-        config.resume_kimg = kimg
+        config["resume_pkl"] = snapshot
+        config["resume_kimg"] = kimg
     else:
         misc.log("Start model training from scratch", "white")
 
@@ -452,6 +476,7 @@ def main():
     parser.add_argument("--dataset",            help = "Training dataset name (subdirectory of data-dir)", required = True)
     parser.add_argument("--ratio",              help = "Image height/width ratio in the dataset", default = 1.0, type = float)
     parser.add_argument("--resolution",         help = "Training resolution", default = 256, type = int)
+    parser.add_argument("--resize-to-power-of-2", help = "Automatically resize non-power-of-2 images to nearest power of 2 (default: %(default)s)", default = True, metavar = "BOOL", type = _str_to_bool, nargs = "?")
     parser.add_argument("--num-threads",        help = "Number of input processing threads (default: %(default)s)", default = 4, type = int)
     parser.add_argument("--mirror-augment",     help = "Perform horizontal flip augmentation for the data (default: %(default)s)", default = None, action = "store_true")
     parser.add_argument("--train-images-num",   help = "Maximum number of images to train on. If not specified, train on the whole dataset.", default = None, type = int)
@@ -472,7 +497,7 @@ def main():
     parser.add_argument("--autotune",           help = "Set training hyper-parameters automatically using a heuristic", default = False, action = "store_true")
 
     ## Logging and evaluation
-    parser.add_argument("--result-dir",         help = "Root directory for experiments (default: %(default)s)", default = "results", metavar = "DIR")
+    parser.add_argument("--result-dir",         help = "Root directory for experiments (default: %(default)s)", default = "/data/irb/surgery/pro00114885/conditionalImageGen/", metavar = "DIR")
     parser.add_argument("--metrics",            help = "Comma-separated list of metrics or none (default: %(default)s)", default = "fid", type = _parse_comma_sep)
     parser.add_argument("--truncation-psi",     help = "Truncation Psi to be used in producing sample images " +
                                                        "(used only for visualizations, _not used_ in training or for computing metrics) (default: %(default)s)", default = 0.75, type = float)
@@ -593,6 +618,9 @@ def main():
     run_name, run_dir = setup_working_space(args)
     config = setup_config(run_dir, **vars(args))
     setup_savefile(args, run_name, run_dir, config)
+    # Ensure config is fully converted to EasyDict recursively before launching processes
+    if not isinstance(config, dnnlib.util.EasyDict):
+        config = dict_to_easydict_recursive(config)
     launch_processes(config)
 
 if __name__ == "__main__":

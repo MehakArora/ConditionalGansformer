@@ -1097,7 +1097,7 @@ class SynthesisBlock(torch.nn.Module):
             if latent_stem:
                 # optional todo: add local noise (to comply with TF version)
                 self.conv_stem = FullyConnectedLayer(self.w_dim, out_channels * np.prod(self.init_shape), 
-                    act = layer_kwargs.get(act, "lrelu"), gain = np.sqrt(2) / 4)                
+                    act = layer_kwargs.get("act", "lrelu"), gain = np.sqrt(2) / 4)
                 self.num_conv += 1
             else:
                 self.const = torch.nn.Parameter(torch.randn([out_channels, *self.init_shape]))
