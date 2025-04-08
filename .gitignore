@@ -6,6 +6,9 @@ temp_cifar100/
 cifar100/
 raw/
 
+# Venv
+gansformer/gansformer/
+
 # SLURM output files
 *.out
 *.err
