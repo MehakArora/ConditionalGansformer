@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=ganformer_cifar100
-#SBATCH --output=ganformer_cifar100_%j.out
-#SBATCH --error=ganformer_cifar100_%j.err
+#SBATCH --job-name=ganformer_cifar100_clip
+#SBATCH --output=ganformer_cifar100_clip_%j.out
+#SBATCH --error=ganformer_cifar100_clip_%j.err
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -24,7 +24,7 @@ source ~/venv/gansformer/bin/activate
 cd $HOME/ConditionalGansformer
 
 # Create results directory
-mkdir -p results/cifar100_ganformer
+mkdir -p results/cifar100_ganformer_clip
 
 module load cuda12.0
 
@@ -46,12 +46,12 @@ python gansformer/run_network.py \
   --total-kimg=25000 \
   --mirror-augment \
   --autotune \
-  --result-dir=/data/irb/surgery/pro00114885/conditionalImageGen/cifar100_args_corrected \
+  --result-dir=/data/irb/surgery/pro00114885/conditionalImageGen/cifar100_clip \
   --g-lr=0.0025 \
   --d-lr=0.0025 \
   --train \
   --gpus=0 \
-  --expname=cifar100_ganformer --transformer \
+  --expname=cifar100_ganformer_clip --transformer \
   --num-heads=4 \
   --attention-dropout=0.12 \
   --integration=mul \
@@ -59,6 +59,5 @@ python gansformer/run_network.py \
   --use-pos \
   --mapping-ltnt2ltnt \
   --g-arch=resnet \
-  --mapping-resnet
 
 echo "Training completed at $(date)" 

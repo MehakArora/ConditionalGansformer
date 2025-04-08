@@ -384,8 +384,9 @@ def training_loop(
         loss_args = dict_to_easydict_recursive(loss_args)
     if isinstance(vis_args, dict) and not isinstance(vis_args, dnnlib.util.EasyDict):
         vis_args = dict_to_easydict_recursive(vis_args)
-
+    
     dataset, dataset_iter = load_dataset(dataset_args, batch_size, rank, num_gpus, log) # Load training set
+    print(dataset.label_dim)
 
     nets = construct_nets(cG, cD, dataset, device, log) if train else None        # Construct networks
     G, D, Gs = load_nets(resume_pkl, nets, device, log)                           # Resume from existing pickle

@@ -4,6 +4,7 @@ import shutil
 import urllib.request
 import tarfile
 from tqdm import tqdm
+import torch
 
 # Add PIL compatibility patch
 def add_pil_compatibility():
@@ -79,11 +80,29 @@ def download_cifar100(data_dir='datasets', force_download=False):
         from PIL import Image
         from gansformer.dataset_tool import create_from_imgs
         
+        # Import CLIP for embeddings
+        try:
+            import clip
+            from torchvision import transforms
+            print("Successfully imported CLIP for image embeddings")
+        except ImportError:
+            print("CLIP not found. Installing...")
+            # Try to install CLIP if not present
+            import subprocess
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/openai/CLIP.git"])
+            import clip
+            from torchvision import transforms
+            print("CLIP installed successfully")
+        
         print("\nExtracting images from CIFAR-100 binary files...")
         
         # Create a temporary directory for the extracted images
         images_dir = os.path.join(cifar_dir, 'images')
         os.makedirs(images_dir, exist_ok=True)
+        
+        # Store all labels for later saving
+        all_labels = []
+        filenames_ordered = []
         
         # Load the training data
         train_file = os.path.join(extract_dir, 'train')
@@ -104,8 +123,14 @@ def download_cifar100(data_dir='datasets', force_download=False):
                 # Create PIL image
                 pil_image = Image.fromarray(image)
                 
-                # Save image
-                pil_image.save(os.path.join(images_dir, f'train_{i:05d}_{label:03d}.png'))
+                # Create filename and save image
+                filename = f'train_{i:05d}_{label:03d}.png'
+                pil_image.save(os.path.join(images_dir, filename))
+                
+                # Store label and filename
+                all_labels.append(label)
+                filenames_ordered.append(filename)
+                
         else:
             print(f"Warning: Training file not found at {train_file}")
         
@@ -127,19 +152,87 @@ def download_cifar100(data_dir='datasets', force_download=False):
                 # Create PIL image
                 pil_image = Image.fromarray(image)
                 
-                # Save image
-                pil_image.save(os.path.join(images_dir, f'test_{i:05d}_{label:03d}.png'))
+                # Create filename and save image
+                filename = f'test_{i:05d}_{label:03d}.png'
+                pil_image.save(os.path.join(images_dir, filename))
+                
+                # Store label and filename
+                all_labels.append(label)
+                filenames_ordered.append(filename)
         else:
             print(f"Warning: Test file not found at {test_file}")
         
-        # Create the dataset in GANsformer format
+        # Save labels as numpy array
+        print(f"Saving labels for {len(all_labels)} images...")
+        
+        # Convert to numpy array of int64 (for one-hot encoding)
+        labels_array = np.array(all_labels, dtype=np.int64)
+        
+        # Sort images by filename to ensure consistent order between images and labels
+        # First create a mapping from filename to index in the all_labels array
+        filename_to_idx = {filename: idx for idx, filename in enumerate(filenames_ordered)}
+        
+        # Get sorted filenames
+        sorted_filenames = sorted(filenames_ordered)
+        
+        # Create new sorted labels array
+        sorted_labels = np.array([all_labels[filename_to_idx[filename]] for filename in sorted_filenames], dtype=np.int64)
+        
+        # Save the labels
+        labels_path = os.path.join(cifar_dir, 'labels.npy')
+        np.save(labels_path, sorted_labels)
+        print(f"Saved labels to {labels_path}")
+        
+        # Generate CLIP embeddings
+        print("\nGenerating CLIP embeddings for images...")
+        
+        # Load CLIP model
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {device}")
+        model, preprocess = clip.load("ViT-B/32", device=device)
+        
+        # Prepare to store embeddings
+        clip_embeddings = []
+        
+        # Process images in batches to generate CLIP embeddings
+        batch_size = 128  # Adjust based on available memory
+        
+        with torch.no_grad():
+            for i in range(0, len(sorted_filenames), batch_size):
+                batch_files = sorted_filenames[i:i+batch_size]
+                print(f"Processing batch {i//batch_size + 1}/{(len(sorted_filenames) + batch_size - 1)//batch_size}")
+                
+                # Load and preprocess images in the batch
+                batch_images = []
+                for filename in batch_files:
+                    img_path = os.path.join(images_dir, filename)
+                    img = Image.open(img_path).convert("RGB")
+                    batch_images.append(preprocess(img))
+                
+                # Stack images into a batch tensor
+                image_input = torch.stack(batch_images).to(device)
+                
+                # Get CLIP image embeddings
+                image_features = model.encode_image(image_input)
+                
+                # Add to list of embeddings
+                clip_embeddings.append(image_features.cpu().numpy())
+        
+        # Concatenate all batches
+        clip_embeddings = np.concatenate(clip_embeddings, axis=0)
+        
+        # Save CLIP embeddings
+        clip_labels_path = os.path.join(cifar_dir, 'labels_clip.npy')
+        np.save(clip_labels_path, clip_embeddings)
+        print(f"Saved CLIP embeddings to {clip_labels_path} with shape {clip_embeddings.shape}")
+        
+        # Create the dataset in GANsformer format with use_labels=True
         print("\nCreating GANsformer dataset from extracted images...")
-        # Add resolution parameter explicitly
         create_from_imgs(cifar_dir, images_dir, format='png')
         
         print("\nDataset is ready for training!")
-        print("You can now train a model using:")
-        print(f"python gansformer/run_network.py --data-dir={data_dir} --dataset=cifar100 --resolution=32")
+        print("You can now train a model with label conditioning using:")
+        print(f"python gansformer/run_network.py --data-dir={data_dir} --dataset=cifar100 --resolution=32 --use-labels=True")
     except ImportError as e:
         print(f"Error importing GANsformer modules: {e}")
         print("Please make sure you're running this script from the GANsformer project root.")

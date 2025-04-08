@@ -15,7 +15,7 @@ class Dataset(torch.utils.data.Dataset):
         name,                       # Name of the dataset
         shape,                      # Shape of the raw image data (NCHW)
         max_items      = None,      # Limit the size of the dataset. None = no limit
-        use_labels     = False,     # Enable conditioning labels? False = label dimension is zero
+        use_labels     = True,     # Enable conditioning labels? False = label dimension is zero
         mirror_augment = False,     # Augment the dataset with horizontally mirrored images
         ratio          = 1.0,       # Image height/width ratio in the dataset
         **_kwargs                   # Ignore unrecognized keyword args
@@ -49,13 +49,15 @@ class Dataset(torch.utils.data.Dataset):
         if not self.use_labels:
             return np.zeros([self.shape[0], 0], dtype = np.float32)
         
-        label_path = f"{self.path}/labels.npy"
+        label_path = f"{self.path}/labels_clip.npy"
         if not os.path.exists(label_path):
             misc.error(f"Labels file not found at {label_path}")
             
         try:
             with open(label_path, "rb") as f:
                 labels = np.load(f)
+            print(labels.shape)
+            print(labels[:3])
         except Exception as e:
             misc.error(f"Failed to load labels from {label_path}: {e}")
             
@@ -82,9 +84,10 @@ class Dataset(torch.utils.data.Dataset):
     def get_label(self, idx):
         label = self.labels[self.idx[idx]]
         if label.dtype == np.int64:
-            onehot = np.zeros(self.label_shape, dtype = np.float32)
-            onehot[label] = 1
-            label = onehot
+        #    onehot = np.zeros(self.label_shape, dtype = np.float32)
+        #    onehot[label] = 1
+        #    label = onehot
+            label = label.astype(np.float32)
         return label.copy()
 
     def get_random_labels(self, num):
@@ -181,7 +184,7 @@ class ImageFolderDataset(Dataset):
         if not self.use_labels:
             return np.zeros([self.shape[0], 0], dtype = np.float32)
         
-        label_path = f"{self.path}/labels.npy"
+        label_path = f"{self.path}/labels_clip.npy"
         if not os.path.exists(label_path):
             misc.error(f"Labels file not found at {label_path}")
             
