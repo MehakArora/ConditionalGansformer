@@ -6,10 +6,9 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:1
 #SBATCH --partition=gpu
-#SBATCH --account=ma618
 
 # Print job info
 echo "Job ID: $SLURM_JOB_ID"
@@ -18,15 +17,13 @@ echo "Start Time: $(date)"
 
 
 # Activate your environment 
-source ~/venv/gansformer/bin/activate
+source $HOME/venv/bin/activate
 
 # Navigate to the project directory (modify with your actual path)
 cd $HOME/ConditionalGansformer
 
 # Create results directory
-mkdir -p results/cifar100_ganformer
-
-module load cuda12.0
+mkdir -p /opt/scratchspace/conditionalGansformer/results/cifar100_ganformer
 
 # Print CUDA devices and PyTorch version
 echo "CUDA devices available:"
@@ -35,7 +32,7 @@ python -c "import torch; print('CUDA available:', torch.cuda.is_available()); pr
 # Run the training
 echo "Starting GANsformer training on CIFAR-100..."
 python gansformer/run_network.py \
-  --data-dir=datasets \
+  --data-dir=/opt/scratchspace/conditionalGansformer/ \
   --dataset=cifar100 \
   --resolution=32 \
   --components-num=8 \
@@ -43,12 +40,13 @@ python gansformer/run_network.py \
   --batch-size=32 \
   --batch-gpu=32 \
   --gamma=15 \
-  --total-kimg=25000 \
+  --total-kimg=20000 \
   --mirror-augment \
   --autotune \
   --result-dir=/data/irb/surgery/pro00114885/conditionalImageGen/cifar100_args_corrected \
   --g-lr=0.0025 \
   --d-lr=0.0025 \
+  --result-dir=/opt/scratchspace/conditionalGansformer/results/cifar100_ganformer \
   --train \
   --gpus=0 \
   --expname=cifar100_ganformer --transformer \

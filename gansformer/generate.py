@@ -13,6 +13,7 @@ from training import misc
 from training.misc import crop_max_rectangle as crop
 
 # Generate images using pretrained network pickle.
+@torch.no_grad()
 def run(model, gpus, output_dir, images_num, truncation_psi, ratio):
     os.environ["CUDA_VISIBLE_DEVICES"] = gpus                             # Set GPUs
     device = torch.device("cuda")
