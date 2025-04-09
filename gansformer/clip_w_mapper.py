@@ -12,7 +12,7 @@ import clip
 from tqdm import tqdm
 
 sys.path.append('.')
-from gansformer import loader
+import loader
 
 class TextEmbeddingDataset(Dataset):
     """Dataset of text prompts and their CLIP embeddings"""
@@ -70,7 +70,7 @@ class CLIPWMapperTrainer:
         
         # Load the pretrained GANsformer
         print(f"Loading pretrained model from {model_path}")
-        self.G = loader.load_network(model_path, 'G', None).to(device).eval()
+        self.G = loader.load_network(model_path, eval = True)["Gs"].to(device)
         self.z_dim = self.G.z_dim
         self.w_dim = self.G.w_dim
         self.k = self.G.k
@@ -88,7 +88,7 @@ class CLIPWMapperTrainer:
         
         print(f"Models initialized. Generator has {self.k} components, w_dim={self.w_dim}")
     
-    def generate_w_samples(self, n_samples=1000, truncation_psi=0.7, seed=None):
+    def generate_w_samples(self, n_samples=1000, seed=None):
         """Generate random W samples from the pretrained model"""
         if seed is not None:
             torch.manual_seed(seed)
@@ -101,7 +101,7 @@ class CLIPWMapperTrainer:
             for i in range(0, n_samples, batch_size):
                 curr_batch_size = min(batch_size, n_samples - i)
                 z = torch.randn(curr_batch_size, self.k, self.z_dim).to(self.device)
-                w = self.G.mapping(z, None)
+                w = self.G(z = z, return_ws = True)
                 all_w.append(w)
         
         return torch.cat(all_w, dim=0)
