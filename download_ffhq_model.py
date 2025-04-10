@@ -35,4 +35,4 @@ def download_ffhq_ganformer_model(model_path):
         sys.exit(1)
 
 if __name__ == "__main__":
-    download_ffhq_ganformer_model("/opt/scratchspace/conditionalGansformer/ffhq_model/")  
+    download_ffhq_ganformer_model("/data/irb/surgery/pro00114885/conditionalImageGen/ffhq_model/")  
